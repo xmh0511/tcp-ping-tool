@@ -243,6 +243,7 @@ const columns = reactive([
   margin-top: 10px;
   max-height: 228px;
   overflow-y: auto;
+  padding-bottom: 20px;
 }
 .latency-text {
   margin-bottom: 0px;
