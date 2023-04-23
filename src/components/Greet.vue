@@ -210,20 +210,12 @@ const columns = reactive([
             <SyncOutlined v-else spin></SyncOutlined>
           </template>
           <template v-if="column.key === 'count'">
-            <a-badge
+            <!-- <a-badge
               v-if="record.latency.success"
               :count="record.latency.count"
               :number-style="{ backgroundColor: '#52c41a' }"
-            />
-            <a-badge
-			  v-else
-              count="NaN"
-              :number-style="{
-                backgroundColor: '#fff',
-                color: '#999',
-                boxShadow: '0 0 0 1px #d9d9d9 inset',
-              }"
-            />
+            /> -->
+			<a-statistic :value="record.latency.count" />
           </template>
         </template>
       </a-table>
@@ -266,5 +258,11 @@ const columns = reactive([
 }
 .group-in-line .checkbox-item {
   margin-left: 10px;
+}
+:deep(.ant-statistic-content .ant-statistic-content-value){
+   font-size:16px !important;
+}
+:deep(.ant-statistic-content-value-int){
+	font-size:16px !important;
 }
 </style>
