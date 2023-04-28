@@ -62,15 +62,17 @@ async fn test_connection_speed(pers: Vec<String>, time_out:u64, interval_time:u6
 		let socks5_url = socks5_url.clone();
         join_set.spawn(async move {
 			let mut use_time_vec = Vec::new();
+			//let mut count = 0u64;
 			loop{
 				let now = time::Instant::now();
 				match time::timeout(Duration::from_millis(time_out),construct_use_stream(time_out,per.clone(),use_proxy,socks5_url.clone())).await {
 					Ok(d) => {
 						if let Ok(_) = d {
+							//count+=1;
 							let elapse = now.elapsed().as_millis();
 							use_time_vec.push(elapse);
 							let total:u128 = use_time_vec.iter().sum();
-							let count = use_time_vec.len() as u128;
+							let count: u128 = use_time_vec.len() as u128;
 							let average_time = total / count;
 							//println!("{} ms",now.elapsed().as_millis());
 							//(per, now.elapsed().as_millis().to_string())
@@ -79,8 +81,9 @@ async fn test_connection_speed(pers: Vec<String>, time_out:u64, interval_time:u6
 								"index":index,
 								"success":true,
 								"msg":{
-									"latency":average_time,
-									"count":count
+									"latency":elapse,
+									"count":count,
+									"average":average_time
 								}
 							});
 							window.emit("per-result", j.to_string()).unwrap();

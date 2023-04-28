@@ -1,10 +1,24 @@
 <script setup>
-import { reactive, ref, onUnmounted, onMounted } from "vue";
+import { reactive, ref, onUnmounted, onMounted,computed } from "vue";
 import { invoke } from "@tauri-apps/api/tauri";
 import { emit, listen, once } from "@tauri-apps/api/event";
 
 import { SyncOutlined } from "@ant-design/icons-vue";
 import { message } from "ant-design-vue";
+
+//格式化时间
+function format(dat){
+    //获取年月日，时间
+    var year = dat.getFullYear();
+    var mon = (dat.getMonth()+1) < 10 ? "0"+(dat.getMonth()+1) : dat.getMonth()+1;
+    var data = dat.getDate()  < 10 ? "0"+(dat.getDate()) : dat.getDate();
+    var hour = dat.getHours()  < 10 ? "0"+(dat.getHours()) : dat.getHours();
+    var min =  dat.getMinutes()  < 10 ? "0"+(dat.getMinutes()) : dat.getMinutes();
+    var seon = dat.getSeconds() < 10 ? "0"+(dat.getSeconds()) : dat.getSeconds();
+				
+    var newDate = year +"-"+ mon +"-"+ data +" "+ hour +":"+ min +":"+ seon;
+    return newDate;
+}
 
 const per_pool = reactive({
   text: "",
@@ -14,7 +28,14 @@ const per_pool = reactive({
   interval:3000
 });
 
+const record_vec = reactive({
+	map:{}
+});
+
 const loading_state = ref(false);
+const dialog_visible = ref(false);
+const current_dialog_identity = ref(null);
+
 
 let unlisten1;
 let unlisten2;
@@ -47,9 +68,15 @@ onMounted(async () => {
       ) {
         return;
       }
+	  record_vec.map[json.ip].push({
+		  time: format(new Date()),
+		  value: json.msg.latency
+	  });
       //console.log(dataSource.list[index]);
+	  dataSource.list[index].data_index = index;
       dataSource.list[index].latency.result = `${json.msg.latency} ms`;
       dataSource.list[index].latency.count = json.msg.count;
+	  dataSource.list[index].latency.average = `${json.msg.average} ms`;
       dataSource.list[index].latency.success = true;
       dataSource.list[index].is_pending = false;
     } else {
@@ -57,8 +84,14 @@ onMounted(async () => {
         return;
       }
       let index = json.index;
+	  record_vec.map[json.ip].push({
+		  time: format(new Date()),
+		  value: json.msg.error
+	  });
+	  dataSource.list[index].data_index = index;
       dataSource.list[index].latency.result = json.msg.error;
       dataSource.list[index].latency.count = "NaN";
+	  dataSource.list[index].latency.average = "NaN";
       dataSource.list[index].latency.success = false;
       dataSource.list[index].is_pending = false;
     }
@@ -91,9 +124,13 @@ const test_speed = async () => {
   let arr = text_n.split("\n");
   //console.log(arr);
   dataSource.list = [];
+  record_vec.map = {};
+  let data_index = 0;
   for (let per of arr) {
+	record_vec.map[per] = [];
     dataSource.list.push({
       per,
+	  data_index,
       latency: {
         result: "",
         success: true,
@@ -101,6 +138,7 @@ const test_speed = async () => {
       },
       is_pending: true,
     });
+	data_index++;
   }
   //console.log("-------------------",dataSource.list);
   if (arr.length !== 0) {
@@ -135,15 +173,40 @@ const columns = reactive([
     key: "latency",
   },
   {
+	title:"平均",
+	key:"average"
+  },
+  {
     title: "次数",
     dataIndex: "count",
     key: "count",
   },
 ]);
+const customRow = (record)=>{
+	return {
+		onClick:(event) => {
+			current_dialog_identity.value = record.per;
+			dialog_visible.value = true;
+			console.log("click");
+			//console.log(record_vec.map[record.per]);
+		},
+	}
+}
 </script>
 
 <template>
   <div class="card">
+	<a-modal v-model:visible="dialog_visible" :title="current_dialog_identity" :footer="null" :maskClosable="false">
+		<div class="dialog-content">
+			<div>
+				<p v-for="(value,key) in record_vec.map[current_dialog_identity].reverse()" :key="key">
+					 <span >{{ value.time }}</span>
+					 <span style="margin-right: 10px;">:</span>
+					 <span>{{ value.value }} ms</span>
+				</p>
+			</div>
+		</div>
+    </a-modal>
     <div class="form-content">
       <a-form>
         <a-form-item label="超时阈值" :label-col="{ span: 3 }">
@@ -197,6 +260,7 @@ const columns = reactive([
         :dataSource="dataSource.list"
         :columns="columns"
         :pagination="false"
+		:customRow="customRow"
       >
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'latency'">
@@ -209,6 +273,9 @@ const columns = reactive([
             </p>
             <SyncOutlined v-else spin></SyncOutlined>
           </template>
+		  <template v-if="column.key === 'average'">
+			<p class="latency-text" :class="record.latency.success ? 'green-text' : 'red-text'">{{ record.latency.average }}</p> 
+		  </template>
           <template v-if="column.key === 'count'">
             <!-- <a-badge
               v-if="record.latency.success"
@@ -264,5 +331,9 @@ const columns = reactive([
 }
 :deep(.ant-statistic-content-value-int){
 	font-size:16px !important;
+}
+.dialog-content{
+	max-height:300px;
+	overflow: auto;
 }
 </style>
