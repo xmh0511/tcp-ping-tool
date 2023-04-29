@@ -1,23 +1,25 @@
 <script setup>
-import { reactive, ref, onUnmounted, onMounted,computed } from "vue";
+import { reactive, ref, onUnmounted, onMounted, computed } from "vue";
 import { invoke } from "@tauri-apps/api/tauri";
 import { emit, listen, once } from "@tauri-apps/api/event";
 
-import { SyncOutlined } from "@ant-design/icons-vue";
+import { SyncOutlined,CloseOutlined } from "@ant-design/icons-vue";
 import { message } from "ant-design-vue";
 
 //格式化时间
-function format(dat){
-    //获取年月日，时间
-    var year = dat.getFullYear();
-    var mon = (dat.getMonth()+1) < 10 ? "0"+(dat.getMonth()+1) : dat.getMonth()+1;
-    var data = dat.getDate()  < 10 ? "0"+(dat.getDate()) : dat.getDate();
-    var hour = dat.getHours()  < 10 ? "0"+(dat.getHours()) : dat.getHours();
-    var min =  dat.getMinutes()  < 10 ? "0"+(dat.getMinutes()) : dat.getMinutes();
-    var seon = dat.getSeconds() < 10 ? "0"+(dat.getSeconds()) : dat.getSeconds();
-				
-    var newDate = year +"-"+ mon +"-"+ data +" "+ hour +":"+ min +":"+ seon;
-    return newDate;
+function format(dat) {
+  //获取年月日，时间
+  var year = dat.getFullYear();
+  var mon =
+    dat.getMonth() + 1 < 10 ? "0" + (dat.getMonth() + 1) : dat.getMonth() + 1;
+  var data = dat.getDate() < 10 ? "0" + dat.getDate() : dat.getDate();
+  var hour = dat.getHours() < 10 ? "0" + dat.getHours() : dat.getHours();
+  var min = dat.getMinutes() < 10 ? "0" + dat.getMinutes() : dat.getMinutes();
+  var seon = dat.getSeconds() < 10 ? "0" + dat.getSeconds() : dat.getSeconds();
+
+  var newDate =
+    year + "-" + mon + "-" + data + " " + hour + ":" + min + ":" + seon;
+  return newDate;
 }
 
 const per_pool = reactive({
@@ -25,17 +27,16 @@ const per_pool = reactive({
   time_out_threshold: 5000,
   socks5_url: "",
   use_proxy: false,
-  interval:3000
+  interval: 3000,
 });
 
-const record_vec = reactive({
-	map:{}
-});
+const record_vec = {
+  map: {},
+};
 
 const loading_state = ref(false);
 const dialog_visible = ref(false);
 const current_dialog_identity = ref(null);
-
 
 let unlisten1;
 let unlisten2;
@@ -68,15 +69,18 @@ onMounted(async () => {
       ) {
         return;
       }
-	  record_vec.map[json.ip].push({
-		  time: format(new Date()),
-		  value: json.msg.latency
-	  });
+      record_vec.map[json.ip].push({
+        time: format(new Date()),
+        value: json.msg.latency,
+      });
+    //   if (dialog_visible.value) {
+    //     return;
+    //   }
       //console.log(dataSource.list[index]);
-	  dataSource.list[index].data_index = index;
+      dataSource.list[index].data_index = index;
       dataSource.list[index].latency.result = `${json.msg.latency} ms`;
       dataSource.list[index].latency.count = json.msg.count;
-	  dataSource.list[index].latency.average = `${json.msg.average} ms`;
+      dataSource.list[index].latency.average = `${json.msg.average} ms`;
       dataSource.list[index].latency.success = true;
       dataSource.list[index].is_pending = false;
     } else {
@@ -84,14 +88,17 @@ onMounted(async () => {
         return;
       }
       let index = json.index;
-	  record_vec.map[json.ip].push({
-		  time: format(new Date()),
-		  value: json.msg.error
-	  });
-	  dataSource.list[index].data_index = index;
+      record_vec.map[json.ip].push({
+        time: format(new Date()),
+        value: json.msg.error,
+      });
+    //   if (dialog_visible.value) {
+    //     return;
+    //   }
+      dataSource.list[index].data_index = index;
       dataSource.list[index].latency.result = json.msg.error;
       dataSource.list[index].latency.count = "NaN";
-	  dataSource.list[index].latency.average = "NaN";
+      dataSource.list[index].latency.average = "NaN";
       dataSource.list[index].latency.success = false;
       dataSource.list[index].is_pending = false;
     }
@@ -127,10 +134,10 @@ const test_speed = async () => {
   record_vec.map = {};
   let data_index = 0;
   for (let per of arr) {
-	record_vec.map[per] = [];
+    record_vec.map[per] = [];
     dataSource.list.push({
       per,
-	  data_index,
+      data_index,
       latency: {
         result: "",
         success: true,
@@ -138,7 +145,7 @@ const test_speed = async () => {
       },
       is_pending: true,
     });
-	data_index++;
+    data_index++;
   }
   //console.log("-------------------",dataSource.list);
   if (arr.length !== 0) {
@@ -148,16 +155,16 @@ const test_speed = async () => {
       time_out: per_pool.time_out_threshold,
       use_proxy: per_pool.use_proxy,
       socks5_url: per_pool.socks5_url,
-	  interval: per_pool.interval
+      interval: per_pool.interval,
     }); //["222.186.139.4:9099"]
   }
 };
-const cleanAll = ()=>{
-	console.log("loading_state.value", loading_state.value);
-	if(loading_state.value === false){
-		dataSource.list = [];
-	}
-}
+const cleanAll = () => {
+  console.log("loading_state.value", loading_state.value);
+  if (loading_state.value === false) {
+    dataSource.list = [];
+  }
+};
 const dataSource = reactive({
   list: [],
 });
@@ -173,8 +180,8 @@ const columns = reactive([
     key: "latency",
   },
   {
-	title:"平均",
-	key:"average"
+    title: "平均",
+    key: "average",
   },
   {
     title: "次数",
@@ -182,21 +189,50 @@ const columns = reactive([
     key: "count",
   },
 ]);
-const customRow = (record)=>{
-	return {
-		onClick:(event) => {
-			current_dialog_identity.value = record.per;
-			dialog_visible.value = true;
-			console.log("click");
-			//console.log(record_vec.map[record.per]);
-		},
-	}
+const customRow = (record) => {
+  return {
+    onClick: (event) => {
+      current_dialog_identity.value = record.per;
+      dialog_visible.value = true;
+      console.log("click");
+      //console.log(record_vec.map[record.per]);
+    },
+  };
+};
+const closeModal = ()=>{
+	dialog_visible.value = false;
 }
+
+
 </script>
 
 <template>
   <div class="card">
-	<a-modal v-model:visible="dialog_visible" :title="current_dialog_identity" :footer="null" :maskClosable="false">
+    <div class="modal-panel" v-if="dialog_visible">
+      <div class="modal-inner-panel">
+        <div class="modal-body">
+          <div class="modal-body-bar">
+			<div class="modal-title">
+				<span>{{ current_dialog_identity }}</span>
+			</div>
+            <div class="modal-close-button">
+				<CloseOutlined @click="closeModal"/>
+			</div>
+          </div>
+          <div class="modal-body-content">
+            <p
+              v-for="(value, key) in (record_vec.map[current_dialog_identity] === undefined? []:record_vec.map[current_dialog_identity].reverse())"
+              :key="key"
+            >
+              <span>{{ value.time }}</span>
+              <span style="margin-right: 10px">:</span>
+              <span>{{ value.value }} ms</span>
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- <a-modal v-model:visible="dialog_visible" :title="current_dialog_identity" :footer="null" :zIndex="9999" :forceRender="true">
 		<div class="dialog-content">
 			<div>
 				<p v-for="(value,key) in record_vec.map[current_dialog_identity].reverse()" :key="key">
@@ -206,7 +242,7 @@ const customRow = (record)=>{
 				</p>
 			</div>
 		</div>
-    </a-modal>
+    </a-modal> -->
     <div class="form-content">
       <a-form>
         <a-form-item label="超时阈值" :label-col="{ span: 3 }">
@@ -215,11 +251,8 @@ const customRow = (record)=>{
             suffix="ms"
           ></a-input>
         </a-form-item>
-		<a-form-item label="间隔时间" :label-col="{ span: 3 }">
-          <a-input
-            v-model:value="per_pool.interval"
-            suffix="ms"
-          ></a-input>
+        <a-form-item label="间隔时间" :label-col="{ span: 3 }">
+          <a-input v-model:value="per_pool.interval" suffix="ms"></a-input>
         </a-form-item>
         <a-form-item label="Socks5" :label-col="{ span: 3 }">
           <div class="group-in-line">
@@ -242,10 +275,19 @@ const customRow = (record)=>{
         </a-form-item>
       </a-form>
       <div class="button-content">
-        <a-button style="margin-right: 10px;" type="primary" @click="test_speed">{{
-          loading_state === false ? "开始" : "结束"
-        }}</a-button>
-		<a-button :disabled="loading_state" type="primary" danger @click="cleanAll">清除</a-button>
+        <a-button
+          style="margin-right: 10px"
+          type="primary"
+          @click="test_speed"
+          >{{ loading_state === false ? "开始" : "结束" }}</a-button
+        >
+        <a-button
+          :disabled="loading_state"
+          type="primary"
+          danger
+          @click="cleanAll"
+          >清除</a-button
+        >
       </div>
     </div>
     <div style="height: 20px; width: 100%">
@@ -260,7 +302,7 @@ const customRow = (record)=>{
         :dataSource="dataSource.list"
         :columns="columns"
         :pagination="false"
-		:customRow="customRow"
+        :customRow="customRow"
       >
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'latency'">
@@ -273,16 +315,21 @@ const customRow = (record)=>{
             </p>
             <SyncOutlined v-else spin></SyncOutlined>
           </template>
-		  <template v-if="column.key === 'average'">
-			<p class="latency-text" :class="record.latency.success ? 'green-text' : 'red-text'">{{ record.latency.average }}</p> 
-		  </template>
+          <template v-if="column.key === 'average'">
+            <p
+              class="latency-text"
+              :class="record.latency.success ? 'green-text' : 'red-text'"
+            >
+              {{ record.latency.average }}
+            </p>
+          </template>
           <template v-if="column.key === 'count'">
             <!-- <a-badge
               v-if="record.latency.success"
               :count="record.latency.count"
               :number-style="{ backgroundColor: '#52c41a' }"
             /> -->
-			<a-statistic :value="record.latency.count" />
+            <a-statistic :value="record.latency.count" />
           </template>
         </template>
       </a-table>
@@ -326,14 +373,61 @@ const customRow = (record)=>{
 .group-in-line .checkbox-item {
   margin-left: 10px;
 }
-:deep(.ant-statistic-content .ant-statistic-content-value){
-   font-size:16px !important;
+:deep(.ant-statistic-content .ant-statistic-content-value) {
+  font-size: 16px !important;
 }
-:deep(.ant-statistic-content-value-int){
-	font-size:16px !important;
+:deep(.ant-statistic-content-value-int) {
+  font-size: 16px !important;
 }
-.dialog-content{
-	max-height:300px;
+.dialog-content {
+  max-height: 300px;
+  overflow: auto;
+}
+.modal-panel {
+  position: absolute;
+  top: 0px;
+  bottom: 0px;
+  left: 0px;
+  right: 0px;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 9999;
+}
+.modal-inner-panel {
+  width: 80%;
+  height: 60%;
+  background-color: white;
+  margin-left: auto;
+  margin-right: auto;
+  margin-top: 20%;
+  border-radius: 10px;
+}
+.modal-body-bar{
+	height:39px;
+	border-bottom: 1px solid #f1efef;
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+}
+.modal-close-button{
+	margin-right: 8px;
+	cursor: pointer;
+}
+.modal-title{
+	font-weight: bold;
+	margin-left: 10px;
+}
+.modal-body{
+	display: flex;
+	flex-direction: column;
+	height:100%;
+	padding-bottom: 10px;
+}
+.modal-body-content{
+	flex: 1;
 	overflow: auto;
+	padding-left: 10px;
+	padding-right: 10px;
+	padding-top: 10px;
+	box-sizing: border-box;
 }
 </style>
