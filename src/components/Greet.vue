@@ -204,6 +204,15 @@ const closeModal = ()=>{
 	dialog_visible.value = false;
 }
 
+const reverse_list = computed(()=>{
+	if(current_dialog_identity.value === null){
+		return [];
+	}
+	if(record_vec.map[current_dialog_identity.value] === undefined){
+		return [];
+	}
+	return record_vec.map[current_dialog_identity.value].reverse();
+})
 
 </script>
 
@@ -222,7 +231,7 @@ const closeModal = ()=>{
           </div>
           <div class="modal-body-content">
             <p
-              v-for="(value, key) in (record_vec.map[current_dialog_identity] === undefined? []:record_vec.map[current_dialog_identity])"
+              v-for="(value, key) in reverse_list"
               :key="key"
             >
               <span>{{ value.time }}</span>
