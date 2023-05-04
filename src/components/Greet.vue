@@ -30,9 +30,9 @@ const per_pool = reactive({
   interval: 3000,
 });
 
-const record_vec = {
+const record_vec = reactive({
   map: {},
-};
+});
 
 const loading_state = ref(false);
 const dialog_visible = ref(false);
@@ -48,6 +48,7 @@ onMounted(async () => {
     message.error(`${event.payload}`);
     loading_state.value = false;
     dataSource.list = [];
+	record_vec.map = {};
   });
 
   unlisten2 = await listen("complete", (event) => {
@@ -221,7 +222,7 @@ const closeModal = ()=>{
           </div>
           <div class="modal-body-content">
             <p
-              v-for="(value, key) in (record_vec.map[current_dialog_identity] === undefined? []:record_vec.map[current_dialog_identity].reverse())"
+              v-for="(value, key) in (record_vec.map[current_dialog_identity] === undefined? []:record_vec.map[current_dialog_identity])"
               :key="key"
             >
               <span>{{ value.time }}</span>
