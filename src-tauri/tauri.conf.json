@@ -29,13 +29,14 @@
       ],
       "identifier": "com.tauri.dev.tcp.latency",
       "targets": "all",
-	  "windows": {
-			"webviewInstallMode": {
-			  "type": "embedBootstrapper"
-			},
-			"wix": {
-			  "language": "zh-CN"
-			}
+      "windows": {
+        "webviewInstallMode": {
+          "type": "embedBootstrapper"
+        },
+        "wix": {
+          "language": "zh-CN"
+        },
+        "targets": ["msi", "nsis", "portable"]
       }
     },
     "security": {
