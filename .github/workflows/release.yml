@@ -31,7 +31,6 @@ jobs:
             wget \
             file \
             libssl-dev \
-            libappindicator3-dev \
             patchelf \
             libglib2.0-dev
 
