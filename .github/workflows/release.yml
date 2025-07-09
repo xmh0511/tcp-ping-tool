@@ -9,7 +9,7 @@ jobs:
   tauri:
     strategy:
       matrix:
-        platform: [macos-latest, ubuntu-latest, windows-latest]
+        platform: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
@@ -17,6 +17,24 @@ jobs:
         with:
           node-version: 20
       - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            libwebkit2gtk-4.0-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libssl-dev \
+            libappindicator3-dev \
+            patchelf \
+            libglib2.0-dev
+
       - run: npm install
       - run: npm run build
       - uses: tauri-apps/tauri-action@v0.5
