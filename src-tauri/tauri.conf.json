@@ -7,7 +7,7 @@
     "withGlobalTauri": false
   },
   "package": {
-    "productName": "TCP latency test",
+    "productName": "tcp-ping-tool",
     "version": "0.0.0"
   },
   "tauri": {
@@ -27,8 +27,7 @@
         "icons/icon.icns",
         "icons/icon.ico"
       ],
-      "identifier": "com.tauri.dev.tcp.speed",
-      "packageName": "tcp",
+      "identifier": "com.tauri.dev.tcp.latency",
       "targets": "all",
 	  "windows": {
 			"webviewInstallMode": {
