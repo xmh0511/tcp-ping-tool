@@ -9,7 +9,7 @@ jobs:
   tauri:
     strategy:
       matrix:
-        platform: [ubuntu-22.04, windows-latest, macos-latest]
+        platform: [ubuntu-22.04, windows-latest, macos-13, macos-latest]
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
