@@ -9,7 +9,7 @@ jobs:
   tauri:
     strategy:
       matrix:
-        platform: [ubuntu-latest, windows-latest, macos-latest]
+        platform: [ubuntu-22.04, windows-latest, macos-latest]
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
@@ -17,10 +17,6 @@ jobs:
         with:
           node-version: 20
       - uses: dtolnay/rust-toolchain@stable
-
-      - name: Enable universe repo
-        if: runner.os == 'Linux'
-        run: sudo add-apt-repository universe
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
