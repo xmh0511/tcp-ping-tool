@@ -35,8 +35,7 @@
         },
         "wix": {
           "language": "zh-CN"
-        },
-        "targets": ["msi", "nsis", "portable"]
+        }
       }
     },
     "security": {
