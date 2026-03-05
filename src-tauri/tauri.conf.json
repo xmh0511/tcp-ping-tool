@@ -49,7 +49,7 @@
         "fullscreen": false,
         "resizable": false,
         "title": "Tcp延迟测试工具",
-        "width": 800,
+        "width": 960,
         "height": 680
       }
     ]
