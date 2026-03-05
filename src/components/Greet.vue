@@ -4,6 +4,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 
 import { SyncOutlined, CloseOutlined } from "@ant-design/icons-vue";
 import { message } from "ant-design-vue";
+import LatencyChart from "./LatencyChart.vue";
 
 function format(dat) {
   var year = dat.getFullYear();
@@ -102,6 +103,52 @@ const getLatencyClass = (record) => {
   return "red-text";
 };
 
+const W_SPARK = 120;
+const H_SPARK = 32;
+const PAD_SPARK = 2;
+
+// Both helpers share the same x-axis (full records array index) so error
+// markers and the latency line are always horizontally aligned.
+const getSparklinePath = (ip) => {
+  const records = record_vec.map[ip];
+  if (!records || records.length < 2) return null;
+  const successRecords = records.filter((r) => !r.is_error);
+  if (successRecords.length < 1) return null;
+
+  const values = successRecords.map((r) => r.value);
+  const minVal = Math.min(...values);
+  const maxVal = Math.max(...values);
+  const range = maxVal - minVal || 1;
+  const total = records.length;
+
+  let d = "";
+  let prevWasError = true;
+  records.forEach((r, i) => {
+    if (r.is_error) {
+      prevWasError = true;
+      return;
+    }
+    const x = PAD_SPARK + (i / Math.max(total - 1, 1)) * (W_SPARK - 2 * PAD_SPARK);
+    const y = H_SPARK - PAD_SPARK - ((r.value - minVal) / range) * (H_SPARK - 2 * PAD_SPARK);
+    d += prevWasError ? `M${x.toFixed(1)},${y.toFixed(1)}` : `L${x.toFixed(1)},${y.toFixed(1)}`;
+    prevWasError = false;
+  });
+  return d || null;
+};
+
+const getSparklineErrorDots = (ip) => {
+  const records = record_vec.map[ip];
+  if (!records || records.length === 0) return [];
+  const total = records.length;
+  return records
+    .map((r, i) => {
+      if (!r.is_error) return null;
+      const x = PAD_SPARK + (i / Math.max(total - 1, 1)) * (W_SPARK - 2 * PAD_SPARK);
+      return { x: x.toFixed(1), y: H_SPARK / 2 };
+    })
+    .filter(Boolean);
+};
+
 const test_speed = async () => {
   if (loading_state.value === true) {
     emit("cancel-all");
@@ -191,6 +238,11 @@ const columns = reactive([
     title: "丢包率",
     key: "packet_loss",
   },
+  {
+    title: "图表",
+    key: "chart",
+    width: 140,
+  },
 ]);
 
 const customRow = (record) => {
@@ -206,19 +258,15 @@ const closeModal = () => {
   dialog_visible.value = false;
 };
 
-const reverse_list = computed(() => {
-  if (current_dialog_identity.value === null) {
-    return [];
-  }
-  if (record_vec.map[current_dialog_identity.value] === undefined) {
-    return [];
-  }
-  return [...record_vec.map[current_dialog_identity.value]].reverse();
+const current_chart_records = computed(() => {
+  if (current_dialog_identity.value === null) return [];
+  return record_vec.map[current_dialog_identity.value] ?? [];
 });
 </script>
 
 <template>
   <div class="card">
+    <!-- Detail chart modal -->
     <div class="modal-panel" v-if="dialog_visible">
       <div class="modal-inner-panel">
         <div class="modal-body">
@@ -231,17 +279,12 @@ const reverse_list = computed(() => {
             </div>
           </div>
           <div class="modal-body-content">
-            <p v-for="(item, key) in reverse_list" :key="key">
-              <span>{{ item.time }}</span>
-              <span style="margin-right: 10px">:</span>
-              <span :class="item.is_error ? 'red-text' : ''">
-                {{ item.is_error ? item.value : item.value + " ms" }}
-              </span>
-            </p>
+            <LatencyChart :records="current_chart_records" />
           </div>
         </div>
       </div>
     </div>
+
     <div class="form-content">
       <a-form>
         <a-form-item label="超时阈值" :label-col="{ span: 3 }">
@@ -289,6 +332,7 @@ const reverse_list = computed(() => {
         >
       </div>
     </div>
+
     <div style="height: 20px; width: 100%">
       <a-badge
         v-if="loading_state === true"
@@ -296,6 +340,7 @@ const reverse_list = computed(() => {
         text="进行中"
       />
     </div>
+
     <div class="table-content">
       <a-table
         :dataSource="dataSource.list"
@@ -315,19 +360,23 @@ const reverse_list = computed(() => {
             </p>
             <SyncOutlined v-else spin></SyncOutlined>
           </template>
+
           <template v-if="column.key === 'average'">
             <p class="latency-text" :class="getLatencyClass(record)">
               {{ record.latency.average }}
             </p>
           </template>
+
           <template v-if="column.key === 'min'">
             <p class="latency-text" :class="getLatencyClass(record)">
               {{ record.latency.min }}
             </p>
           </template>
+
           <template v-if="column.key === 'count'">
             <a-statistic :value="record.latency.count" />
           </template>
+
           <template v-if="column.key === 'packet_loss'">
             <template v-if="!record.is_pending">
               <p
@@ -342,6 +391,52 @@ const reverse_list = computed(() => {
             <template v-else>
               <span>—</span>
             </template>
+          </template>
+
+          <!-- Inline sparkline chart column -->
+          <template v-if="column.key === 'chart'">
+            <div class="sparkline-cell">
+              <svg
+                v-if="getSparklinePath(record.per)"
+                viewBox="0 0 120 32"
+                width="120"
+                height="32"
+                class="sparkline-svg"
+              >
+                <!-- Error markers (×) aligned to same x-axis as the line -->
+                <template
+                  v-for="(dot, di) in getSparklineErrorDots(record.per)"
+                  :key="'e' + di"
+                >
+                  <line
+                    :x1="Number(dot.x) - 3"
+                    :y1="dot.y - 3"
+                    :x2="Number(dot.x) + 3"
+                    :y2="dot.y + 3"
+                    stroke="#ff4d4f"
+                    stroke-width="1.5"
+                  />
+                  <line
+                    :x1="Number(dot.x) + 3"
+                    :y1="dot.y - 3"
+                    :x2="Number(dot.x) - 3"
+                    :y2="dot.y + 3"
+                    stroke="#ff4d4f"
+                    stroke-width="1.5"
+                  />
+                </template>
+                <!-- Latency path with M/L segments (gaps at error positions) -->
+                <path
+                  :d="getSparklinePath(record.per)"
+                  fill="none"
+                  stroke="#1890ff"
+                  stroke-width="1.5"
+                  stroke-linejoin="round"
+                  stroke-linecap="round"
+                />
+              </svg>
+              <span v-else class="sparkline-placeholder">—</span>
+            </div>
           </template>
         </template>
       </a-table>
@@ -360,7 +455,7 @@ const reverse_list = computed(() => {
 }
 .table-content {
   margin-top: 10px;
-  max-height: 260px;
+  max-height: 340px;
   overflow-y: auto;
   padding-bottom: 20px;
 }
@@ -406,11 +501,11 @@ const reverse_list = computed(() => {
 }
 .modal-inner-panel {
   width: 80%;
-  height: 60%;
+  height: 70%;
   background-color: white;
   margin-left: auto;
   margin-right: auto;
-  margin-top: 20%;
+  margin-top: 10%;
   border-radius: 10px;
 }
 .modal-body-bar {
@@ -445,5 +540,17 @@ const reverse_list = computed(() => {
 }
 .clickable-table :deep(tr.ant-table-row:hover > td) {
   background-color: #e6f7ff !important;
+}
+.sparkline-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sparkline-svg {
+  display: block;
+}
+.sparkline-placeholder {
+  color: #bbb;
+  font-size: 14px;
 }
 </style>
