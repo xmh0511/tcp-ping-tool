@@ -4,13 +4,6 @@
 use std::sync::Arc;
 
 use tauri::Manager;
-
-// Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
-
 use tauri::Window;
 use tokio::io::{self, Error, ErrorKind};
 use tokio::net::TcpStream;
@@ -18,6 +11,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::Mutex;
 use tokio::task::JoinSet;
 use tokio::time::{self, Duration};
+
 async fn construct_use_stream(
     time_out: u64,
     per: String,
@@ -27,43 +21,32 @@ async fn construct_use_stream(
     if use_proxy {
         match time::timeout(
             Duration::from_millis(time_out),
-            TcpStream::connect(socks5_url.clone()),
+            TcpStream::connect(socks5_url),
         )
         .await
         {
-            Ok(r) => {
-                if let Ok(mut s) = r {
-                    let per = per.clone();
-                    let Some((addr,port)) = per.split_once(":") else{
-						return Err(Error::new(ErrorKind::Other, "invalid peer address"));
-					};
-                    let (addr, port) = (addr.to_owned(), {
-                        if let Ok(port) = u16::from_str_radix(port, 10) {
-                            port
-                        } else {
-                            return Err(Error::new(ErrorKind::Other, "invalid port"));
-                        }
-                    });
-                    match async_socks5::connect(&mut s, (addr, port), None).await {
-                        Ok(_) => {
-                            return Ok(s);
-                        }
-                        Err(e) => {
-                            return Err(Error::new(ErrorKind::Other, e.to_string()));
-                        }
-                    }
-                } else {
-                    return Err(Error::new(ErrorKind::Other, r.err().unwrap().to_string()));
-                }
+            Ok(Ok(mut s)) => {
+                let Some((addr, port_str)) = per.split_once(':') else {
+                    return Err(Error::new(ErrorKind::Other, "invalid peer address"));
+                };
+                let port = port_str
+                    .parse::<u16>()
+                    .map_err(|_| Error::new(ErrorKind::Other, "invalid port"))?;
+                async_socks5::connect(&mut s, (addr.to_owned(), port), None)
+                    .await
+                    .map(|_| s)
+                    .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))
             }
-            Err(e) => {
-                return Err(Error::new(ErrorKind::Other, e.to_string()));
-            }
-        };
+            Ok(Err(e)) => Err(e),
+            Err(e) => Err(Error::new(ErrorKind::Other, e.to_string())),
+        }
     } else {
-        TcpStream::connect(per.clone()).await
+        time::timeout(Duration::from_millis(time_out), TcpStream::connect(per))
+            .await
+            .unwrap_or_else(|e| Err(Error::new(ErrorKind::Other, e.to_string())))
     }
 }
+
 async fn test_connection_speed(
     pers: Vec<String>,
     time_out: u64,
@@ -79,58 +62,57 @@ async fn test_connection_speed(
         let window = window.clone();
         let socks5_url = socks5_url.clone();
         join_set.spawn(async move {
-            let mut use_time_vec = Vec::new();
-            //let mut count = 0u64;
+            let mut use_time_vec: Vec<u128> = Vec::new();
+            let mut total_count = 0u64;
             loop {
+                total_count += 1;
                 let now = time::Instant::now();
-                match time::timeout(
-                    Duration::from_millis(time_out),
-                    construct_use_stream(time_out, per.clone(), use_proxy, socks5_url.clone()),
-                )
-                .await
+                match construct_use_stream(time_out, per.clone(), use_proxy, socks5_url.clone())
+                    .await
                 {
-                    Ok(d) => {
-                        if let Ok(_) = d {
-                            //count+=1;
-                            let elapse = now.elapsed().as_millis();
-                            use_time_vec.push(elapse);
-                            let total: u128 = use_time_vec.iter().sum();
-                            let count: u128 = use_time_vec.len() as u128;
-                            let average_time = total / count;
-                            //println!("{} ms",now.elapsed().as_millis());
-                            //(per, now.elapsed().as_millis().to_string())
-                            let j = serde_json::json!({
-                                "ip":per,
-                                "index":index,
-                                "success":true,
-                                "msg":{
-                                    "latency":elapse,
-                                    "count":count,
-                                    "average":average_time
-                                }
-                            });
-                            window.emit("per-result", j.to_string()).unwrap();
-                        } else {
-                            //println!("{d:?}");
-                            let j = serde_json::json!({
-                                "ip":per,
-                                "index":index,
-                                "success":false,
-                                "msg":{
-                                    "error": format!("{}",d.err().unwrap().to_string())
-                                }
-                            });
-                            window.emit("per-result", j.to_string()).unwrap();
-                        }
+                    Ok(_) => {
+                        let elapse = now.elapsed().as_millis();
+                        use_time_vec.push(elapse);
+                        let success_count = use_time_vec.len() as u128;
+                        let total: u128 = use_time_vec.iter().sum();
+                        let average_time = total / success_count;
+                        let min_time = *use_time_vec.iter().min().unwrap();
+                        let packet_loss = (((total_count as f64 - success_count as f64)
+                            / total_count as f64
+                            * 1000.0)
+                            .round()
+                            / 10.0);
+                        let j = serde_json::json!({
+                            "ip": per,
+                            "index": index,
+                            "success": true,
+                            "msg": {
+                                "latency": elapse,
+                                "count": success_count,
+                                "total": total_count,
+                                "average": average_time,
+                                "min": min_time,
+                                "packet_loss": packet_loss
+                            }
+                        });
+                        window.emit("per-result", j.to_string()).unwrap();
                     }
                     Err(e) => {
-                        //println!("time_out: {e:?}");
+                        let success_count = use_time_vec.len() as u64;
+                        let packet_loss = (((total_count - success_count) as f64
+                            / total_count as f64
+                            * 1000.0)
+                            .round()
+                            / 10.0);
                         let j = serde_json::json!({
-                            "ip":per,
-                            "index":index,
-                            "success":false,
-                            "msg":{
-                                "error": format!("{}",e.to_string())
+                            "ip": per,
+                            "index": index,
+                            "success": false,
+                            "msg": {
+                                "error": e.to_string(),
+                                "count": success_count,
+                                "total": total_count,
+                                "packet_loss": packet_loss
                             }
                         });
                         window.emit("per-result", j.to_string()).unwrap();
@@ -141,11 +123,11 @@ async fn test_connection_speed(
         });
         index += 1;
     }
-	while let Some(_) = canceller.lock().await.recv().await {
-		break;
-	}
-	join_set.shutdown().await;
-	window.emit("complete", "").unwrap();
+    while let Some(_) = canceller.lock().await.recv().await {
+        break;
+    }
+    join_set.shutdown().await;
+    window.emit("complete", "").unwrap();
 }
 
 fn main() {
@@ -161,57 +143,40 @@ fn main() {
             window.listen_global("test-pers", move |event| {
                 let payload = event.payload().unwrap_or("");
                 if payload != "" {
-                    //app.emit_all("speed-result", "abc");
-                    //println!("payload === {payload}");
                     match serde_json::from_str::<serde_json::Value>(payload) {
                         Ok(json) => {
-                            let pers = {
-                                match json.get("pers") {
-                                    Some(r) => match r.as_array() {
-                                        Some(arr) => arr
-                                            .iter()
-                                            .map(|item| item.as_str().unwrap_or("").to_string())
-                                            .collect(),
-                                        None => Vec::new(),
-                                    },
-                                    None => Vec::new(),
-                                }
-                            };
-                            let time_out = {
-                                match json.get("time_out") {
-                                    Some(time) => time.as_u64().unwrap_or(5000),
-                                    None => 5000,
-                                }
-                            };
-                            let use_proxy = {
-                                match json.get("use_proxy") {
-                                    Some(use_proxy) => use_proxy.as_bool().unwrap_or(false),
-                                    None => false,
-                                }
-                            };
-                            let socks5_url = {
-                                match json.get("socks5_url") {
-                                    Some(socks5_url) => {
-                                        socks5_url.as_str().unwrap_or("").to_owned()
-                                    }
-                                    None => "".to_owned(),
-                                }
-                            };
-                            let interval_time = {
-                                match json.get("interval") {
-                                    Some(time) => time.as_u64().unwrap_or(3000),
-                                    None => 3000,
-                                }
-                            };
+                            let pers = json
+                                .get("pers")
+                                .and_then(|v| v.as_array())
+                                .map(|arr| {
+                                    arr.iter()
+                                        .map(|item| item.as_str().unwrap_or("").to_string())
+                                        .collect::<Vec<_>>()
+                                })
+                                .unwrap_or_default();
+                            let time_out = json
+                                .get("time_out")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(5000);
+                            let use_proxy = json
+                                .get("use_proxy")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false);
+                            let socks5_url = json
+                                .get("socks5_url")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_owned();
+                            let interval_time = json
+                                .get("interval")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(3000);
                             let window = window_copy.clone();
-                            //println!("{pers:?},{time_out}");
                             if pers.is_empty() {
                                 window_copy.emit("reset", "空数据").unwrap();
                                 return;
                             }
-                            //println!("use_proxy: {use_proxy},socks5_url:{}",socks5_url.is_empty());
                             if use_proxy && socks5_url.is_empty() {
-                                //println!("invocation -----------");
                                 window_copy
                                     .emit("reset", "填写完整的socks5代理地址")
                                     .unwrap();
@@ -224,30 +189,18 @@ fn main() {
                                     .build()
                                     .unwrap()
                                     .block_on(async {
-										test_connection_speed(
-											pers,
-											time_out,
-											interval_time,
-											use_proxy,
-											socks5_url,
-											window,
-											rx,
-										)
-										.await;  
+                                        test_connection_speed(
+                                            pers,
+                                            time_out,
+                                            interval_time,
+                                            use_proxy,
+                                            socks5_url,
+                                            window,
+                                            rx,
+                                        )
+                                        .await;
                                     });
                             });
-                            // tokio::spawn(async move {
-                            //     test_connection_speed(
-                            //         pers,
-                            //         time_out,
-                            //         interval_time,
-                            //         use_proxy,
-                            //         socks5_url,
-                            //         window,
-                            //         rx,
-                            //     )
-                            //     .await;
-                            // });
                         }
                         Err(e) => {
                             window_copy.emit("reset", e.to_string()).unwrap();
@@ -259,7 +212,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
