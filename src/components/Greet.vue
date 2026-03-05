@@ -1,14 +1,12 @@
 <script setup>
 import { reactive, ref, onUnmounted, onMounted, computed } from "vue";
-import { invoke } from "@tauri-apps/api/tauri";
-import { emit, listen, once } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 
-import { SyncOutlined,CloseOutlined } from "@ant-design/icons-vue";
+import { SyncOutlined, CloseOutlined } from "@ant-design/icons-vue";
 import { message } from "ant-design-vue";
+import LatencyChart from "./LatencyChart.vue";
 
-//格式化时间
 function format(dat) {
-  //获取年月日，时间
   var year = dat.getFullYear();
   var mon =
     dat.getMonth() + 1 < 10 ? "0" + (dat.getMonth() + 1) : dat.getMonth() + 1;
@@ -16,10 +14,7 @@ function format(dat) {
   var hour = dat.getHours() < 10 ? "0" + dat.getHours() : dat.getHours();
   var min = dat.getMinutes() < 10 ? "0" + dat.getMinutes() : dat.getMinutes();
   var seon = dat.getSeconds() < 10 ? "0" + dat.getSeconds() : dat.getSeconds();
-
-  var newDate =
-    year + "-" + mon + "-" + data + " " + hour + ":" + min + ":" + seon;
-  return newDate;
+  return year + "-" + mon + "-" + data + " " + hour + ":" + min + ":" + seon;
 }
 
 const per_pool = reactive({
@@ -44,62 +39,49 @@ let unlisten3;
 
 onMounted(async () => {
   unlisten1 = await listen("reset", (event) => {
-    //console.log(event);
     message.error(`${event.payload}`);
     loading_state.value = false;
     dataSource.list = [];
-	record_vec.map = {};
+    record_vec.map = {};
   });
 
-  unlisten2 = await listen("complete", (event) => {
+  unlisten2 = await listen("complete", () => {
     message.success("本轮测试结束");
     loading_state.value = false;
   });
 
   unlisten3 = await listen("per-result", (event) => {
-    //console.log(event);
     let json = JSON.parse(event.payload);
+    if (dataSource.list.length === 0) {
+      return;
+    }
+    let index = json.index;
+    if (dataSource.list[index] === undefined) {
+      return;
+    }
     if (json.success) {
-      if (dataSource.list.length === 0) {
-        return;
-      }
-      let index = json.index;
-      if (
-        dataSource.list[index] === undefined ||
-        dataSource.list[index] === ""
-      ) {
-        return;
-      }
       record_vec.map[json.ip].push({
         time: format(new Date()),
         value: json.msg.latency,
+        is_error: false,
       });
-    //   if (dialog_visible.value) {
-    //     return;
-    //   }
-      //console.log(dataSource.list[index]);
-      dataSource.list[index].data_index = index;
+      dataSource.list[index].latency.value = json.msg.latency;
       dataSource.list[index].latency.result = `${json.msg.latency} ms`;
       dataSource.list[index].latency.count = json.msg.count;
       dataSource.list[index].latency.average = `${json.msg.average} ms`;
+      dataSource.list[index].latency.min = `${json.msg.min} ms`;
+      dataSource.list[index].latency.packet_loss = json.msg.packet_loss;
       dataSource.list[index].latency.success = true;
       dataSource.list[index].is_pending = false;
     } else {
-      if (dataSource.list.length === 0) {
-        return;
-      }
-      let index = json.index;
       record_vec.map[json.ip].push({
         time: format(new Date()),
         value: json.msg.error,
+        is_error: true,
       });
-    //   if (dialog_visible.value) {
-    //     return;
-    //   }
-      dataSource.list[index].data_index = index;
       dataSource.list[index].latency.result = json.msg.error;
-      dataSource.list[index].latency.count = "NaN";
-      dataSource.list[index].latency.average = "NaN";
+      dataSource.list[index].latency.count = json.msg.count;
+      dataSource.list[index].latency.packet_loss = json.msg.packet_loss;
       dataSource.list[index].latency.success = false;
       dataSource.list[index].is_pending = false;
     }
@@ -107,18 +89,67 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  //console.log("onUnmounted");
   unlisten1();
   unlisten2();
   unlisten3();
 });
 
-// async function greet() {
-//   // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
-//   greetMsg.value = await invoke("greet", { name: name.value });
-// }
+const getLatencyClass = (record) => {
+  if (record.is_pending) return "";
+  if (!record.latency.success) return "red-text";
+  const ms = record.latency.value;
+  if (ms <= 100) return "green-text";
+  if (ms <= 300) return "yellow-text";
+  return "red-text";
+};
+
+const W_SPARK = 120;
+const H_SPARK = 32;
+const PAD_SPARK = 2;
+
+// Both helpers share the same x-axis (full records array index) so error
+// markers and the latency line are always horizontally aligned.
+const getSparklinePath = (ip) => {
+  const records = record_vec.map[ip];
+  if (!records || records.length < 2) return null;
+  const successRecords = records.filter((r) => !r.is_error);
+  if (successRecords.length < 1) return null;
+
+  const values = successRecords.map((r) => r.value);
+  const minVal = Math.min(...values);
+  const maxVal = Math.max(...values);
+  const range = maxVal - minVal || 1;
+  const total = records.length;
+
+  let d = "";
+  let prevWasError = true;
+  records.forEach((r, i) => {
+    if (r.is_error) {
+      prevWasError = true;
+      return;
+    }
+    const x = PAD_SPARK + (i / Math.max(total - 1, 1)) * (W_SPARK - 2 * PAD_SPARK);
+    const y = H_SPARK - PAD_SPARK - ((r.value - minVal) / range) * (H_SPARK - 2 * PAD_SPARK);
+    d += prevWasError ? `M${x.toFixed(1)},${y.toFixed(1)}` : `L${x.toFixed(1)},${y.toFixed(1)}`;
+    prevWasError = false;
+  });
+  return d || null;
+};
+
+const getSparklineErrorDots = (ip) => {
+  const records = record_vec.map[ip];
+  if (!records || records.length === 0) return [];
+  const total = records.length;
+  return records
+    .map((r, i) => {
+      if (!r.is_error) return null;
+      const x = PAD_SPARK + (i / Math.max(total - 1, 1)) * (W_SPARK - 2 * PAD_SPARK);
+      return { x: x.toFixed(1), y: H_SPARK / 2 };
+    })
+    .filter(Boolean);
+};
+
 const test_speed = async () => {
-  //console.log(per_pool.text);
   if (loading_state.value === true) {
     emit("cancel-all");
     return;
@@ -129,8 +160,14 @@ const test_speed = async () => {
     message.error(`填写测试地址`);
     return;
   }
-  let arr = text_n.split("\n");
-  //console.log(arr);
+  let arr = text_n
+    .split("\n")
+    .map((s) => s.trim())
+    .filter((s) => s !== "");
+  if (arr.length === 0) {
+    message.error(`填写测试地址`);
+    return;
+  }
   dataSource.list = [];
   record_vec.map = {};
   let data_index = 0;
@@ -143,32 +180,36 @@ const test_speed = async () => {
         result: "",
         success: true,
         count: 0,
+        average: "—",
+        min: "—",
+        packet_loss: 0,
+        value: 0,
       },
       is_pending: true,
     });
     data_index++;
   }
-  //console.log("-------------------",dataSource.list);
-  if (arr.length !== 0) {
-    loading_state.value = true;
-    emit("test-pers", {
-      pers: arr,
-      time_out: per_pool.time_out_threshold,
-      use_proxy: per_pool.use_proxy,
-      socks5_url: per_pool.socks5_url,
-      interval: per_pool.interval,
-    }); //["222.186.139.4:9099"]
-  }
+  loading_state.value = true;
+  emit("test-pers", {
+    pers: arr,
+    time_out: per_pool.time_out_threshold,
+    use_proxy: per_pool.use_proxy,
+    socks5_url: per_pool.socks5_url,
+    interval: per_pool.interval,
+  });
 };
+
 const cleanAll = () => {
-  console.log("loading_state.value", loading_state.value);
   if (loading_state.value === false) {
     dataSource.list = [];
+    record_vec.map = {};
   }
 };
+
 const dataSource = reactive({
   list: [],
 });
+
 const columns = reactive([
   {
     title: "远端",
@@ -176,83 +217,74 @@ const columns = reactive([
     key: "per",
   },
   {
-    title: "状态",
+    title: "延迟",
     dataIndex: "latency",
     key: "latency",
   },
   {
-    title: "平均",
+    title: "平均延迟",
     key: "average",
+  },
+  {
+    title: "最小延迟",
+    key: "min",
   },
   {
     title: "次数",
     dataIndex: "count",
     key: "count",
   },
+  {
+    title: "丢包率",
+    key: "packet_loss",
+  },
+  {
+    title: "图表",
+    key: "chart",
+    width: 140,
+  },
 ]);
+
 const customRow = (record) => {
   return {
-    onClick: (event) => {
+    onClick: () => {
       current_dialog_identity.value = record.per;
       dialog_visible.value = true;
-      console.log("click");
-      //console.log(record_vec.map[record.per]);
     },
   };
 };
-const closeModal = ()=>{
-	dialog_visible.value = false;
-}
 
-const reverse_list = computed(()=>{
-	if(current_dialog_identity.value === null){
-		return [];
-	}
-	if(record_vec.map[current_dialog_identity.value] === undefined){
-		return [];
-	}
-	return record_vec.map[current_dialog_identity.value].reverse();
-})
+const closeModal = () => {
+  dialog_visible.value = false;
+};
 
+const current_chart_records = computed(() => {
+  if (current_dialog_identity.value === null) return [];
+  return record_vec.map[current_dialog_identity.value] ?? [];
+});
 </script>
 
 <template>
   <div class="card">
+    <!-- Detail chart modal -->
     <div class="modal-panel" v-if="dialog_visible">
       <div class="modal-inner-panel">
         <div class="modal-body">
           <div class="modal-body-bar">
-			<div class="modal-title">
-				<span>{{ current_dialog_identity }}</span>
-			</div>
+            <div class="modal-title">
+              <span>{{ current_dialog_identity }}</span>
+            </div>
             <div class="modal-close-button">
-				<CloseOutlined @click="closeModal"/>
-			</div>
+              <CloseOutlined @click="closeModal" />
+            </div>
           </div>
           <div class="modal-body-content">
-            <p
-              v-for="(value, key) in reverse_list"
-              :key="key"
-            >
-              <span>{{ value.time }}</span>
-              <span style="margin-right: 10px">:</span>
-              <span>{{ value.value }} ms</span>
-            </p>
+            <LatencyChart :records="current_chart_records" />
           </div>
         </div>
       </div>
     </div>
-    <!-- <a-modal v-model:visible="dialog_visible" :title="current_dialog_identity" :footer="null" :zIndex="9999" :forceRender="true">
-		<div class="dialog-content">
-			<div>
-				<p v-for="(value,key) in record_vec.map[current_dialog_identity].reverse()" :key="key">
-					 <span >{{ value.time }}</span>
-					 <span style="margin-right: 10px;">:</span>
-					 <span>{{ value.value }} ms</span>
-				</p>
-			</div>
-		</div>
-    </a-modal> -->
+
     <div class="form-content">
       <a-form>
         <a-form-item label="超时阈值" :label-col="{ span: 3 }">
@@ -300,6 +332,7 @@ const reverse_list = computed(()=>{
         >
       </div>
     </div>
+
     <div style="height: 20px; width: 100%">
       <a-badge
         v-if="loading_state === true"
@@ -307,45 +340,110 @@ const reverse_list = computed(()=>{
         text="进行中"
       />
     </div>
+
     <div class="table-content">
       <a-table
         :dataSource="dataSource.list"
         :columns="columns"
         :pagination="false"
         :customRow="customRow"
+        class="clickable-table"
       >
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'latency'">
             <p
               v-if="record.is_pending === false"
               class="latency-text"
-              :class="record.latency.success ? 'green-text' : 'red-text'"
+              :class="getLatencyClass(record)"
             >
               {{ record.latency.result }}
             </p>
             <SyncOutlined v-else spin></SyncOutlined>
           </template>
+
           <template v-if="column.key === 'average'">
-            <p
-              class="latency-text"
-              :class="record.latency.success ? 'green-text' : 'red-text'"
-            >
+            <p class="latency-text" :class="getLatencyClass(record)">
               {{ record.latency.average }}
             </p>
           </template>
+
+          <template v-if="column.key === 'min'">
+            <p class="latency-text" :class="getLatencyClass(record)">
+              {{ record.latency.min }}
+            </p>
+          </template>
+
           <template v-if="column.key === 'count'">
-            <!-- <a-badge
-              v-if="record.latency.success"
-              :count="record.latency.count"
-              :number-style="{ backgroundColor: '#52c41a' }"
-            /> -->
             <a-statistic :value="record.latency.count" />
+          </template>
+
+          <template v-if="column.key === 'packet_loss'">
+            <template v-if="!record.is_pending">
+              <p
+                class="latency-text"
+                :class="
+                  record.latency.packet_loss > 0 ? 'red-text' : 'green-text'
+                "
+              >
+                {{ record.latency.packet_loss }}%
+              </p>
+            </template>
+            <template v-else>
+              <span>—</span>
+            </template>
+          </template>
+
+          <!-- Inline sparkline chart column -->
+          <template v-if="column.key === 'chart'">
+            <div class="sparkline-cell">
+              <svg
+                v-if="getSparklinePath(record.per)"
+                viewBox="0 0 120 32"
+                width="120"
+                height="32"
+                class="sparkline-svg"
+              >
+                <!-- Error markers (×) aligned to same x-axis as the line -->
+                <template
+                  v-for="(dot, di) in getSparklineErrorDots(record.per)"
+                  :key="'e' + di"
+                >
+                  <line
+                    :x1="Number(dot.x) - 3"
+                    :y1="dot.y - 3"
+                    :x2="Number(dot.x) + 3"
+                    :y2="dot.y + 3"
+                    stroke="#ff4d4f"
+                    stroke-width="1.5"
+                  />
+                  <line
+                    :x1="Number(dot.x) + 3"
+                    :y1="dot.y - 3"
+                    :x2="Number(dot.x) - 3"
+                    :y2="dot.y + 3"
+                    stroke="#ff4d4f"
+                    stroke-width="1.5"
+                  />
+                </template>
+                <!-- Latency path with M/L segments (gaps at error positions) -->
+                <path
+                  :d="getSparklinePath(record.per)"
+                  fill="none"
+                  stroke="#1890ff"
+                  stroke-width="1.5"
+                  stroke-linejoin="round"
+                  stroke-linecap="round"
+                />
+              </svg>
+              <span v-else class="sparkline-placeholder">—</span>
+            </div>
           </template>
         </template>
       </a-table>
     </div>
   </div>
 </template>
+
 <style scoped>
 .card {
   width: 80%;
@@ -357,7 +455,7 @@ const reverse_list = computed(()=>{
 }
 .table-content {
   margin-top: 10px;
-  max-height: 228px;
+  max-height: 340px;
   overflow-y: auto;
   padding-bottom: 20px;
 }
@@ -365,10 +463,13 @@ const reverse_list = computed(()=>{
   margin-bottom: 0px;
 }
 .green-text {
-  color: green;
+  color: #52c41a;
+}
+.yellow-text {
+  color: #faad14;
 }
 .red-text {
-  color: red;
+  color: #ff4d4f;
 }
 .form-content {
   padding-top: 15px;
@@ -389,10 +490,6 @@ const reverse_list = computed(()=>{
 :deep(.ant-statistic-content-value-int) {
   font-size: 16px !important;
 }
-.dialog-content {
-  max-height: 300px;
-  overflow: auto;
-}
 .modal-panel {
   position: absolute;
   top: 0px;
@@ -404,40 +501,56 @@ const reverse_list = computed(()=>{
 }
 .modal-inner-panel {
   width: 80%;
-  height: 60%;
+  height: 70%;
   background-color: white;
   margin-left: auto;
   margin-right: auto;
-  margin-top: 20%;
+  margin-top: 10%;
   border-radius: 10px;
 }
-.modal-body-bar{
-	height:39px;
-	border-bottom: 1px solid #f1efef;
-	display: flex;
-	justify-content: space-between;
-	align-items: center;
+.modal-body-bar {
+  height: 39px;
+  border-bottom: 1px solid #f1efef;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
-.modal-close-button{
-	margin-right: 8px;
-	cursor: pointer;
+.modal-close-button {
+  margin-right: 8px;
+  cursor: pointer;
 }
-.modal-title{
-	font-weight: bold;
-	margin-left: 10px;
+.modal-title {
+  font-weight: bold;
+  margin-left: 10px;
 }
-.modal-body{
-	display: flex;
-	flex-direction: column;
-	height:100%;
-	padding-bottom: 10px;
+.modal-body {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding-bottom: 10px;
 }
-.modal-body-content{
-	flex: 1;
-	overflow: auto;
-	padding-left: 10px;
-	padding-right: 10px;
-	padding-top: 10px;
-	box-sizing: border-box;
+.modal-body-content {
+  flex: 1;
+  overflow: auto;
+  padding: 10px;
+  box-sizing: border-box;
+}
+.clickable-table :deep(tr.ant-table-row) {
+  cursor: pointer;
+}
+.clickable-table :deep(tr.ant-table-row:hover > td) {
+  background-color: #e6f7ff !important;
+}
+.sparkline-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sparkline-svg {
+  display: block;
+}
+.sparkline-placeholder {
+  color: #bbb;
+  font-size: 14px;
 }
 </style>
